@@ -50,6 +50,7 @@ def example_target_connect() -> CaseInsensitiveDict:
 
 
 @intercept.sniff(listener=InterceptValues.LISTENER_ENDPOINT)
+@intercept.dump()
 @intercept.data(data=InterceptValues.TARGET_DATA)
 def example_sniff_connect() -> CaseInsensitiveDict:
     """
@@ -59,6 +60,7 @@ def example_sniff_connect() -> CaseInsensitiveDict:
     return get(url=OriginalValues.TARGET_HOST).headers
 
 
+@intercept.dump()
 def example_original_connect() -> CaseInsensitiveDict:
     """
     Returns original response headers from original-host.com (to compare with)

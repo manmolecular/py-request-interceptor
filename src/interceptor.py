@@ -4,6 +4,9 @@ import http.client
 from requests import post
 from urllib.parse import urlparse
 from typing import Union
+from logging import getLogger, basicConfig, INFO
+
+basicConfig(level=INFO)
 
 
 class InterceptorBase:
@@ -37,6 +40,7 @@ class InterceptorBase:
         """
         self.client = client or http.client
         self.original_send = self.client.HTTPConnection.send
+        self.log = getLogger(self.__class__.__name__)
 
     def _restore_send(self) -> None:
         """
@@ -79,6 +83,19 @@ class InterceptorBase:
             :return: return 'HTTPConnection.send' with patched data
             """
             send_data(data)
+            return original_send(_self, data)
+
+        self.client.HTTPConnection.send = patch
+
+    def _dump_request(self) -> None:
+        """
+        Logs original request
+        :return: None
+        """
+        original_send = self.client.HTTPConnection.send
+
+        def patch(_self, data, *args, **kwargs) -> http.client.HTTPConnection.send:
+            self.log.info(msg=f"Request:\r\n{data.decode('utf-8')}")
             return original_send(_self, data)
 
         self.client.HTTPConnection.send = patch
@@ -202,6 +219,22 @@ class Interceptor(InterceptorBase):
         def wrap(function):
             def wrapped_function(*args, **kwargs):
                 self._patch_data(patch_data_body=data)
+                function_output = function(*args, **kwargs)
+                self._restore_send()
+                return function_output
+
+            return wrapped_function
+
+        return wrap
+
+    def dump(self) -> callable:
+        """
+        Dumps original request
+        :return: wrap function
+        """
+        def wrap(function):
+            def wrapped_function(*args, **kwargs):
+                self._dump_request()
                 function_output = function(*args, **kwargs)
                 self._restore_send()
                 return function_output

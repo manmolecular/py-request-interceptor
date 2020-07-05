@@ -10,7 +10,10 @@
 
 ## Proof of Concept
 ```python3
+#!/usr/bin/env python3
+
 from src.interceptor import Interceptor
+from requests import get
 
 # Initialize 'Interceptor' here, nothing special
 intercept = Interceptor()
@@ -26,7 +29,8 @@ def example_sniff_connect() -> CaseInsensitiveDict:
     """
     return get(url="http://ORIGINAL_HOST").headers
 
-example_sniff_connect()
+if __name__ == "__main__":
+    example_sniff_connect()
 ```
 
 ## Handlers

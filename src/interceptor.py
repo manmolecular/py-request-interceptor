@@ -3,26 +3,49 @@
 import http.client
 from requests import post
 from urllib.parse import urlparse
+from typing import Union
 
 
-class Interceptor:
+class InterceptorBase:
     """
     This class provides simple functions and methods
     to patch some parts of the standard Python3 HTTP library,
     such as http.client (maybe something else in future)
 
+    Work In Progress, PoC stage.
+
+    Can be used to catch API calls from other libraries, intercept it,
+    sniff and something else.
+
+    This is the base class, so it is no need to use it directly.
+    Please, use the 'Interceptor' class instance or write your own
+    required handlers in the 'Interceptor'.
+
+    Thanks.
+
     To read more:
     1. https://docs.python.org/3/library/http.client.html
     2. https://github.com/python/cpython/tree/3.8/Lib/http/client.py
     """
+
     def __init__(self, client: http.client or None = None):
         """
-        Initialize Interceptor class.
-        No needed for now.
+        Initialize Interceptor base class.
+        Not really required IRL, but helpful for purposes
+        like saving of the original 'send' point + client settings
+        :param client: client to use to, 'http.client' as default one
         """
         self.client = client or http.client
+        self.original_send = self.client.HTTPConnection.send
 
-    def sniff_request(self, listener_url: str) -> None:
+    def _restore_send(self) -> None:
+        """
+        Restore original send function call after use
+        :return: None
+        """
+        self.client.HTTPConnection.send = self.original_send
+
+    def _sniff_request(self, listener_url: str) -> None:
         """
         Sniff request and re-send it to another endpoint
         :param listener_url: listener URL
@@ -38,9 +61,12 @@ class Interceptor:
             """
             self.client.HTTPConnection.send = original_send
             try:
+                if not isinstance(data, bytes):
+                    data = data.encode("utf-8")
                 post(url=listener_url, data=data)
-            except:
-                pass
+            except Exception as unexp_send_err:
+                # TODO: Do something with this exception in future
+                ...
             self.client.HTTPConnection.send = patch
 
         def patch(_self, data, *args, **kwargs) -> http.client.HTTPConnection.send:
@@ -57,11 +83,11 @@ class Interceptor:
 
         self.client.HTTPConnection.send = patch
 
-    def patch_data(self, patch_data=None) -> None:
+    def _patch_data(self, patch_data_body=None) -> None:
         """
         Patches original 'HTTPConnection.send' function to
         replace old data with the new one
-        :param patch_data: any data that can be sent
+        :param patch_data_body: any data that can be sent
         :return: None
         """
         original_send = self.client.HTTPConnection.send
@@ -75,11 +101,14 @@ class Interceptor:
             :param kwargs: additional named arguments
             :return: return 'HTTPConnection.send' with patched data
             """
-            return original_send(_self, patch_data or data)
+            encoded_patch_body = None
+            if patch_data_body is not None and not isinstance(patch_data_body, bytes):
+                encoded_patch_body = patch_data_body.encode("utf-8")
+            return original_send(_self, encoded_patch_body or data)
 
         self.client.HTTPConnection.send = patch
 
-    def patch_target(self, patch_host, patch_port) -> None:
+    def _patch_target(self, patch_host, patch_port) -> None:
         """
         Patches original 'HTTPConnection.send' function to
         provide new target pair: (host, port)
@@ -105,6 +134,7 @@ class Interceptor:
         def host_replace(host: str, data):
             """
             Replace 'Host: www.example.com' header with right header
+            FIXME: Improve the logic here (it should be better!)
             :param host: host to connect
             :param data: raw request
             :return: modified data
@@ -133,3 +163,67 @@ class Interceptor:
             return original_send(connection, data)
 
         self.client.HTTPConnection.send = patch_http
+
+
+class Interceptor(InterceptorBase):
+    def __init__(self, client: http.client or None = None):
+        """
+        Wrap 'InterceptorBase' as decorator or handler functions
+        :param client: client to use
+        """
+        super().__init__(client=client)
+
+    def target(self, host, port) -> callable:
+        """
+        Wrap function to lead requests to another target
+        :param host: host to lead to
+        :param port: port to lead to
+        :return: wrap function
+        """
+
+        def wrap(function):
+            def wrapped_function(*args, **kwargs):
+                self._patch_target(patch_host=host, patch_port=port)
+                function_output = function(*args, **kwargs)
+                self._restore_send()
+                return function_output
+
+            return wrapped_function
+
+        return wrap
+
+    def data(self, data: Union[str, bytes]) -> callable:
+        """
+        Replace original data with something new
+        :param data: new data
+        :return: wrap function
+        """
+
+        def wrap(function):
+            def wrapped_function(*args, **kwargs):
+                self._patch_data(patch_data_body=data)
+                function_output = function(*args, **kwargs)
+                self._restore_send()
+                return function_output
+
+            return wrapped_function
+
+        return wrap
+
+    def sniff(self, listener: str) -> callable:
+        """
+        Sniff requests
+        :param listener: listener endpoint
+        :return: wrap function
+        """
+
+        def wrap(function):
+            def wrapped_function(*args, **kwargs):
+                self._sniff_request(listener_url=listener)
+                function_output = function(*args, **kwargs)
+                self._restore_send()
+                return function_output
+
+            return wrapped_function
+
+        return wrap

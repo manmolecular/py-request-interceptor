@@ -29,6 +29,7 @@ def example_sniff_connect() -> CaseInsensitiveDict:
     """
     return get(url="http://ORIGINAL_HOST").headers
 
+
 if __name__ == "__main__":
     example_sniff_connect()
 ```
